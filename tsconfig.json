@@ -1,0 +1,25 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.web.json",
+  "include": [
+    "env.d.ts",
+    "src/**/*",
+    "src/**/*.vue"
+  ],
+  "compilerOptions": {
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "plotly.js-dist": [
+        "node_modules/@types/plotly.js"
+      ]
+    }
+  },
+  "references": [
+    {
+      "path": "./tsconfig.config.json"
+    }
+  ]
+}
