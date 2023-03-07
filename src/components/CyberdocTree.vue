@@ -1,10 +1,12 @@
 <template>
   <div
     v-if="paneSizes?.length"
-    class="h-100">
+    class="h-100 flex flex-columns"
+  >
     <div
       v-if="rootClasses?.length"
-      class="flex justify-content-between align-items-center p-sm">
+      class="flex justify-content-between align-items-center p-sm"
+    >
       <h1 class="m-e-md">Cyberpunk Class Explorer</h1>
 
       <div class="flex align-items-center">
@@ -14,12 +16,14 @@
               v-model="selectedClass"
               name="selected-class"
               class="text-large"
-              @change="onChange">
+              @change="onSelectClass"
+            >
               <option
                 v-for="rootClass in rootClasses"
                 :key="rootClass"
                 :value="rootClass"
-                :label="rootClass" />
+                :label="rootClass"
+              />
             </select>
             <span class="focus" />
           </div>
@@ -32,12 +36,14 @@
       class="h-100"
       horizontal
       @resized="onResized"
-      @ready="onPaneReady">
+      @ready="onPaneReady"
+    >
       <pane :size="paneSizes[0]">
         <div
           v-if="paneReady"
           ref="plotEl"
-          class="h-100" />
+          class="h-100"
+        />
       </pane>
 
       <pane :size="paneSizes[1]">
@@ -45,7 +51,8 @@
         <div
           v-show="focusedPath"
           ref="editorEl"
-          class="h-100" />
+          class="h-100"
+        />
 
         <!-- <v-ace-editor
           v-model:value="focusedFileContents"
@@ -69,7 +76,6 @@ import Plotly from "plotly.js/lib/core";
 import { fetchCyberdoc, buildLookups, buildRoute, buildTrace, layout, config, roots } from "@/lib/plotlyConfig";
 import router from "@/router";
 import treemap from "plotly.js/lib/treemap";
-
 Plotly.register([treemap]);
 
 let props = defineProps<{
@@ -81,6 +87,7 @@ let editorEl = ref(null);
 let { paneSizes, onResized } = useSplitpanesStorage();
 let locationMap = {};
 let focusedPath = ref("");
+let focusedClass = ref("");
 let selectedClass = ref("");
 let rootClasses = ref([]);
 let paneReady = ref(false);
@@ -89,32 +96,42 @@ let cachedFileContents = {};
 let ace = window["ace"];
 let editor = null;
 
+async function updateFromName() {
+  let name = props.name;
+
+  if (!Array.isArray(name)) name = [name];
+
+  selectedClass.value = name[name.length - 1];
+  focusedClass.value = selectedClass.value;
+
+  await focusClass();
+
+  let trace = buildTrace(name);
+  // @ts-ignore
+  Plotly.react(plotEl.value, [trace], layout, config);
+}
+
 onMounted(async () => {
-  try {
+  if (!editor) {
     editor = ace.edit(editorEl.value);
     editor.setTheme("ace/theme/tomorrow_night_bright");
     editor.setShowPrintMargin(false);
     editor.session.setMode("ace/mode/swift");
-    editor.session.setValue("<h1>Ace Editor works great in Angular!</h1>");
+    editor.session.setValue("");
   }
-  catch (error) {
-    console.log(error);
-  }
-
-  selectedClass.value = props.name[0];
 
   await fetchCyberdoc();
   await Promise.all([buildLookups(), buildLocationMap(), storeFileContents()]);
 
   rootClasses.value = roots.map(r => r.name);
 
-  let trace = buildTrace(props.name);
+  addEventListener('popstate', updateFromName);
 
-  await nextTick();
-  // @ts-ignore
-  Plotly.newPlot(plotEl.value, [trace], layout, config);
-  plotEl.value.on("plotly_hover", onHover);
-  plotEl.value.on("plotly_click", onClick);
+  await updateFromName();
+
+  plotEl.value.on("plotly_hover", onHoverPlot);
+  plotEl.value.on("plotly_click", onClickPlot);
+
 });
 
 async function onPaneReady() {
@@ -122,40 +139,50 @@ async function onPaneReady() {
   paneReady.value = true;
 }
 
-function onChange(evt) {
+function onSelectClass() {
   window.location.href = `/class/${selectedClass.value}`;
 }
 
-async function onHover(evt) {
+async function onHoverPlot(evt) {
   let point = evt.points[0];
-  await setFocusedClass(point.label);
+  focusedClass.value = point.label;
+  await focusClass();
 }
 
-async function onClick(evt) {
+async function focusClass() {
+  let className = focusedClass.value;
+  let location = locationMap[className];
+
+  if (!location) {
+    console.log("No location for ", location);
+    focusedPath.value = "";
+    return;
+  }
+
+  focusedPath.value = location.path.substr(2);
+
+  await loadFileContents(className, location);
+
+  editor.session.setValue(cachedFileContents[className]);
+  editor.gotoLine(location.line, 0, false);
+}
+
+async function onClickPlot(evt) {
   let point = evt.points[0];
   let rt = buildRoute(parseInt(point.id, 10));
   router.push(`/class/${rt}`);
 }
 
-async function setFocusedClass(className) {
-  let location = locationMap[className];
+async function loadFileContents(className: string, location: any) {
+  if (!location) return;
 
-  if (!location) {
-    console.log("No location for " + className);
+  try {
+    if (!cachedFileContents[className]) {
+      cachedFileContents[className] = await get(location.path);
+    }
   }
-  else {
-    try {
-      if (!cachedFileContents[className]) {
-        cachedFileContents[className] = await get(location.path);
-      }
-      focusedPath.value = location.path.substr(2);
-      await nextTick();
-      editor.session.setValue(cachedFileContents[className]);
-      editor.gotoLine(location.line, 0, false);
-    }
-    catch (error) {
-      console.log(error);
-    }
+  catch (error) {
+    console.log(error);
   }
 }
 
@@ -164,7 +191,7 @@ async function buildLocationMap() {
   let locLines = [];
 
   if (!stored) {
-    let locRes = await fetch("/class-locations.txt");
+    let locRes = await fetch("https://raw.githubusercontent.com/johnsusek/cyberpunk-visualizer/main/public/class-locations.txt");
     let locData = await locRes.text();
     locLines = locData.split("\n");
     await set("class-locations", locLines);

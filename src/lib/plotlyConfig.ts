@@ -12,7 +12,7 @@ export let layout = {
 };
 
 export let config = {
-  // responsive: true,
+  responsive: true,
   style: {
     width: "100%",
     height: "100%"
@@ -31,7 +31,9 @@ export async function fetchCyberdoc() {
   let apiJsonStored: any[] = await get("cyberdoc-api");
 
   if (!apiJsonStored) {
-    let apiRes = await fetch("/cyberdoc-api.json");
+    let apiRes = await fetch(
+      "https://raw.githubusercontent.com/johnsusek/cyberpunk-visualizer/main/public/cyberdoc-api.json"
+    );
     let apiJson = await apiRes.json();
     await set("cyberdoc-api", apiJson);
     cyberdoc = apiJson;
