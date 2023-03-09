@@ -3,30 +3,35 @@
     v-if="paneSizes?.length"
     class="h-100 flex flex-columns"
   >
-    <div
-      v-if="rootClasses?.length"
-      class="flex justify-content-between align-items-center p-sm"
-    >
-      <h1 class="m-e-md">Cyberpunk Class Explorer</h1>
+    <div class="flex  justify-content-between align-items-center p-sm">
+      <div class="flex">
+        <h1 class="m-e-md">Cyberpunk 2077 Explorer</h1>
+      </div>
 
       <div class="flex align-items-center">
-        <div>
-          <div class="select">
-            <select
-              v-model="selectedClass"
-              name="selected-class"
+        <div class="flex align-items-center">
+          <form @submit.prevent="onSearch">
+            <input
+              v-model="keyword"
+              placeholder="Filter..."
               class="text-large"
-              @change="onSelectClass"
+              type="search"
+              @search="onSearch"
             >
-              <option
-                v-for="rootClass in rootClasses"
-                :key="rootClass"
-                :value="rootClass"
-                :label="rootClass"
-              />
-            </select>
-            <span class="focus" />
-          </div>
+          </form>
+        </div>
+
+        <div>
+          <a
+            href="https://github.com/johnsusek/cyberpunk-visualizer"
+            target="_blank"
+            class="flex m-w-md"
+          >
+            <img
+              src="/github-mark-white.svg"
+              style="height: 22px"
+            >
+          </a>
         </div>
       </div>
     </div>
@@ -43,7 +48,14 @@
           v-if="paneReady"
           ref="plotEl"
           class="h-100"
-        />
+        >
+          <h1
+            v-if="!plotLoaded"
+            class="p-sm"
+          >
+            Loading...
+          </h1>
+        </div>
       </pane>
 
       <pane :size="paneSizes[1]">
@@ -53,29 +65,23 @@
           ref="editorEl"
           class="h-100"
         />
-
-        <!-- <v-ace-editor
-          v-model:value="focusedFileContents"
-          lang="swift"
-          theme="tomorrow_night_bright"
-          style="height: 100%"
-          @init="editorInit" /> -->
       </pane>
     </splitpanes>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from "vue";
+import { onMounted, ref, nextTick, watch } from "vue";
 import { Splitpanes, Pane } from "splitpanes";
 import * as JSZip from "jszip";
 import { get, set } from '@/lib/db';
 import "splitpanes/dist/splitpanes.css";
 import { useSplitpanesStorage } from "@/composables/useSplitpanesStorage";
 import Plotly from "plotly.js/lib/core";
-import { fetchCyberdoc, buildLookups, buildRoute, buildTrace, layout, config, roots } from "@/lib/plotlyConfig";
-import router from "@/router";
+import { fetchCyberdoc, buildLookups, buildRoute, buildTrace, layout, config } from "@/lib/plotlyConfig";
 import treemap from "plotly.js/lib/treemap";
+import { useRoute, useRouter } from 'vue-router';
+
 Plotly.register([treemap]);
 
 let props = defineProps<{
@@ -84,32 +90,20 @@ let props = defineProps<{
 
 let plotEl = ref(null);
 let editorEl = ref(null);
-let { paneSizes, onResized } = useSplitpanesStorage();
-let locationMap = {};
 let focusedPath = ref("");
 let focusedClass = ref("");
-let selectedClass = ref("");
-let rootClasses = ref([]);
+let keyword = ref("");
 let paneReady = ref(false);
-let cachedFileContents = {};
+let plotLoaded = ref(false);
 
+let { paneSizes, onResized } = useSplitpanesStorage();
+let route = useRoute();
+let router = useRouter();
+
+let locationMap = {};
+let cachedFileContents = {};
 let ace = window["ace"];
 let editor = null;
-
-async function updateFromName() {
-  let name = props.name;
-
-  if (!Array.isArray(name)) name = [name];
-
-  selectedClass.value = name[name.length - 1];
-  focusedClass.value = selectedClass.value;
-
-  await focusClass();
-
-  let trace = buildTrace(name);
-  // @ts-ignore
-  Plotly.react(plotEl.value, [trace], layout, config);
-}
 
 onMounted(async () => {
   if (!editor) {
@@ -123,24 +117,52 @@ onMounted(async () => {
   await fetchCyberdoc();
   await Promise.all([buildLookups(), buildLocationMap(), storeFileContents()]);
 
-  rootClasses.value = roots.map(r => r.name);
+  watch(() => route.query.filter, f => {
+    updateFromRoute();
+  });
+  addEventListener('popstate', updateFromRoute);
+  await updateFromRoute();
 
-  addEventListener('popstate', updateFromName);
-
-  await updateFromName();
+  plotLoaded.value = true;
 
   plotEl.value.on("plotly_hover", onHoverPlot);
   plotEl.value.on("plotly_click", onClickPlot);
-
 });
+
+async function updateFromRoute() {
+  let path = props.name;
+  if (!Array.isArray(path)) path = [path];
+
+  let filters = [];
+
+  if (route.query.filter) {
+    if (!Array.isArray(route.query.filter)) filters = [route.query.filter];
+    else filters = route.query.filter;
+    keyword.value = filters.join(' ');
+  }
+
+  focusedClass.value = path[path.length - 1];
+
+  await focusClass();
+
+  let trace = buildTrace(path, filters);
+
+  // @ts-ignore
+  Plotly.react(plotEl.value, [trace], layout, config);
+}
+
+function onSearch() {
+  if (keyword.value) {
+    router.replace({ path: route.path, query: { filter: keyword.value } });
+  }
+  else {
+    router.replace({ path: route.path, query: null });
+  }
+}
 
 async function onPaneReady() {
   await nextTick();
   paneReady.value = true;
-}
-
-function onSelectClass() {
-  window.location.href = `/class/${selectedClass.value}`;
 }
 
 async function onHoverPlot(evt) {
@@ -170,7 +192,8 @@ async function focusClass() {
 async function onClickPlot(evt) {
   let point = evt.points[0];
   let rt = buildRoute(parseInt(point.id, 10));
-  router.push(`/class/${rt}`);
+
+  router.push({ path: `/class/${rt}`, query: route.query });
 }
 
 async function loadFileContents(className: string, location: any) {
@@ -223,7 +246,7 @@ async function storeFileContents() {
   let stored = await get("./orphans.script");
 
   if (!stored) {
-    let codeRes = await fetch("/redscript-code.zip");
+    let codeRes = await fetch("https://raw.githubusercontent.com/johnsusek/cyberpunk-visualizer/main/public/redscript-code.zip");
     let zipped = await codeRes.blob();
     let unzipped = await JSZip.loadAsync(zipped);
 

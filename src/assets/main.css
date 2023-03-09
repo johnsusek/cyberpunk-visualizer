@@ -90,11 +90,11 @@ h2 {
 }
 
 .text-large {
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .text-larger {
-  font-size: 21px;
+  font-size: 20px;
 }
 
 .m-s-lg {
@@ -103,6 +103,10 @@ h2 {
 
 .m-e-md {
   margin-right: 15px !important;
+}
+
+.m-w-md {
+  margin-left: 15px !important;
 }
 
 .m-n-xl {
@@ -124,4 +128,21 @@ h2 {
 
 .splitpanes--horizontal > .splitpanes__splitter {
   min-height: 4px;
+}
+
+input[type="search"] {
+  border: 2px solid var(--color-background-mute);
+  border-radius: 100px;
+  background-color: var(--color-background-light);
+  padding-left: 1em;
+  color: var(--color-text);
+}
+
+input[type="search"]:focus {
+  border: 2px solid yellowgreen;
+  outline: 0;
+}
+
+input[type="search"]::placeholder {
+  color: var(--color-text);
 }

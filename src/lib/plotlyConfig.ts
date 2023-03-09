@@ -23,9 +23,17 @@ export let config = {
   // }
 };
 
-let idMap = {};
-let nameMap = {};
-let cyberdoc = [];
+type CyberDocEntry = {
+  base: number | string;
+  index: number;
+  name: string;
+  parents: Record<number, boolean>;
+};
+
+let idMap: Record<number, CyberDocEntry> = {};
+let nameMap: Record<string, CyberDocEntry> = {};
+let cyberdoc: CyberDocEntry[] = [];
+let allParents = {};
 
 export async function fetchCyberdoc() {
   let apiJsonStored: any[] = await get("cyberdoc-api");
@@ -54,37 +62,52 @@ function buildParents(src: number) {
   return parents;
 }
 
-export let roots = [];
-let allParents = {};
-
 export async function buildLookups() {
-  for (let entry of cyberdoc) {
-    if (entry.base === 0) {
-      entry.base = "";
+  for (let node of cyberdoc) {
+    if (node.base === 0) {
+      node.base = "";
     }
 
-    idMap[entry.index] = entry;
-    nameMap[entry.name.toLowerCase()] = entry;
-    entry.parents = buildParents(entry.index);
+    idMap[node.index] = node;
+    nameMap[node.name.toLowerCase()] = node;
+    node.parents = buildParents(node.index);
 
-    allParents = { ...allParents, ...entry.parents };
-  }
-
-  for (let entry of cyberdoc) {
-    if (entry.base === "" && allParents[entry.index]) {
-      roots.push(entry);
-    }
+    allParents = { ...allParents, ...node.parents };
   }
 }
 
-export function buildTrace(path: string[]) {
-  let name = path[0].toLowerCase();
+export function buildTrace(path: string[], filters: string[]) {
+  let rootNodeName = path[0].toLowerCase();
+  let rootNodeId = nameMap[rootNodeName].index;
+
+  let nodes = cyberdoc.filter(node => node.index === rootNodeId || node.parents[rootNodeId]);
+
+  if (filters.length) {
+    let filteredNodeIds = {};
+
+    for (let filter of filters) {
+      for (let node of nodes) {
+        if (filteredNodeIds[node.index]) continue;
+
+        if (node.name.toLowerCase().includes(filter.toLowerCase())) {
+          filteredNodeIds[node.index] = idMap[node.index];
+
+          for (let key of Object.keys(node.parents)) {
+            filteredNodeIds[key] = idMap[key];
+          }
+        }
+      }
+    }
+
+    nodes = Object.values(filteredNodeIds);
+  }
+
+  let labels = nodes.map(val => val.name);
+  let ids = nodes.map(val => val.index.toString());
+  let parents = nodes.map(val => val.base.toString());
+
   let target = path[path.length - 1].toLowerCase();
-  let rootId = nameMap[name.toLowerCase()].index;
-  let filteredEntries = cyberdoc.filter(val => val.index === rootId || val.parents[rootId]);
-  let labels = filteredEntries.map(val => val.name);
-  let ids = filteredEntries.map(val => val.index.toString());
-  let parents = filteredEntries.map(val => val.base.toString());
+  let level = nameMap[target]?.index.toString() || nameMap[rootNodeName]?.index.toString();
 
   return {
     type: "treemap",
@@ -99,7 +122,7 @@ export function buildTrace(path: string[]) {
     ids,
     labels,
     parents,
-    level: nameMap[target]?.index.toString() || nameMap[name]?.index.toString()
+    level
   };
 }
 

@@ -8,7 +8,7 @@ const router = createRouter({
     {
       path: "/",
       name: "home",
-      component: HomeView
+      redirect: "/class/IScriptable"
     },
     {
       path: "/class/:name+",
